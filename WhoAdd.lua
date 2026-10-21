@@ -5,7 +5,7 @@
 local addonName = ...
 
 local WhoAdd = CreateFrame("Frame")
-local WhoAddVersion = "4.6.4"
+local WhoAddVersion = "4.6.5"
 WhoAdd.loadStage = "初始化"
 _G.WhoAddVersion = WhoAddVersion
 
@@ -109,6 +109,7 @@ end
 local IGNORED_ADD_NPCS = {
     [34800] = true,  -- 雪地狗头人奴隶
     [34854] = true,  -- 火焰炸弹
+    [14826] = true,  -- 妖术师金度的祭品巨魔：不是开怪单位
     [33136] = true,  -- 尤格萨隆的守护者：出现较晚，不作为开怪依据
     [33966] = true,  -- 尤格萨隆阶段小怪：不作为开怪依据
     [33983] = true,  -- 尤格萨隆阶段小怪：不作为开怪依据
@@ -305,7 +306,7 @@ AddBoss("祖尔格拉布", "疯狂之缘", { 15082, 15083, 15084, 15085 }, nil, 
 AddBoss("祖尔格拉布", "高阶祭司塞卡尔", { 14509, 11347, 11348 }, nil, { 166359 })
 AddBoss("祖尔格拉布", "加兹兰卡", { 15114 })
 AddBoss("祖尔格拉布", "高阶祭司娅尔罗", { 14515 }, nil, { 15101 })
-AddBoss("祖尔格拉布", "妖术师金度", { 11380 }, nil, { 14987, 15112, 14986, 14826 })
+AddBoss("祖尔格拉布", "妖术师金度", { 11380 }, nil, { 14987, 15112, 14986 })
 AddBoss("祖尔格拉布", "哈卡", { 14834 }, nil, { 11357 })
 
 -- 十字军的试炼
