@@ -2,10 +2,11 @@
 -- 首拉通报、开怪快照与首领数据
 -- 兼容 _classic_titan_ / WotLK 3.3.5 风格 API
 
-local addonName = ...
+local WA = select(2, ...)
+WA.addonName = ...
 
 local WhoAdd = CreateFrame("Frame")
-local WhoAddVersion = "4.6.11"
+local WhoAddVersion = "4.6.12"
 WhoAdd.loadStage = "初始化"
 _G.WhoAddVersion = WhoAddVersion
 
@@ -33,6 +34,8 @@ pcall(WhoAdd.RegisterEvent, WhoAdd, "NAME_PLATE_UNIT_ADDED")
 pcall(WhoAdd.RegisterEvent, WhoAdd, "INSTANCE_ENCOUNTER_ENGAGE_UNIT")
 pcall(WhoAdd.RegisterEvent, WhoAdd, "ENCOUNTER_START")
 pcall(WhoAdd.RegisterEvent, WhoAdd, "ENCOUNTER_END")
+pcall(WhoAdd.RegisterEvent, WhoAdd, "ZONE_CHANGED")
+pcall(WhoAdd.RegisterEvent, WhoAdd, "ZONE_CHANGED_INDOORS")
 pcall(WhoAdd.RegisterEvent, WhoAdd, "ZONE_CHANGED_NEW_AREA")
 pcall(WhoAdd.RegisterEvent, WhoAdd, "COMBAT_LOG_EVENT_UNFILTERED")
 
@@ -76,6 +79,7 @@ local SOURCE_LABELS = {
     SPECIAL    = "对话NPC",
     OPENING    = "开怪NPC",
     ENCOUNTER  = "首领开始",
+    YOGG_PRISON = "尤格监狱首战",
 }
 
 local ATTACK_EVENTS = {
@@ -87,53 +91,17 @@ local ATTACK_EVENTS = {
     DAMAGE_SPLIT            = true,
 }
 
-local NON_ENGAGING_SPELL_IDS = {
-    [1130] = true,     -- 猎人印记
-    [14323] = true,
-    [14324] = true,
-    [14325] = true,
-    [53338] = true,
-    [1284419] = true,  -- 袋里藏沙
-}
-
-local NON_ENGAGING_SPELL_NAMES = {
-    ["猎人印记"] = true,
-    ["袋里藏沙"] = true,
-}
+local NON_ENGAGING_SPELL_IDS = WA.Catalog.nonEngagingSpellIds or {}
+local NON_ENGAGING_SPELL_NAMES = WA.Catalog.nonEngagingSpellNames or {}
 
 local function IsNonEngagingSpell(spellId, spellName)
     if NON_ENGAGING_SPELL_IDS[tonumber(spellId) or 0] then return true end
     return spellName and NON_ENGAGING_SPELL_NAMES[spellName] == true or false
 end
 
-local IGNORED_ADD_NPCS = {
-    [34800] = true,  -- 雪地狗头人奴隶
-    [34854] = true,  -- 火焰炸弹
-    [14826] = true,  -- 妖术师金度的祭品巨魔：不是开怪单位
-    [11357] = true,  -- 哈卡之子：不是开怪单位
-    [33136] = true,  -- 尤格萨隆的守护者：出现较晚，不作为开怪依据
-    [33966] = true,  -- 尤格萨隆阶段小怪：不作为开怪依据
-    [33983] = true,  -- 尤格萨隆阶段小怪：不作为开怪依据
-    [33985] = true,  -- 尤格萨隆阶段小怪：不作为开怪依据
-    [33988] = true,  -- 尤格萨隆阶段小怪：不作为开怪依据
-}
-
-local PULL_EVIDENCE_ADD_NPCS = {
-    [25588] = true,  -- 基尔加丹之手
-}
-
-local NPC_DAMAGE_EVENTS = {
-    SWING_DAMAGE          = true,
-    SWING_MISSED          = true,
-    RANGE_DAMAGE          = true,
-    RANGE_MISSED          = true,
-    SPELL_DAMAGE          = true,
-    SPELL_MISSED          = true,
-    SPELL_PERIODIC_DAMAGE = true,
-    SPELL_PERIODIC_MISSED = true,
-    DAMAGE_SHIELD         = true,
-    DAMAGE_SPLIT          = true,
-}
+local IGNORED_ADD_NPCS = WA.Catalog.ignoredAddNpcs or {}
+local PULL_EVIDENCE_ADD_NPCS = WA.Catalog.pullEvidenceAddNpcs or {}
+local NPC_DAMAGE_EVENTS = WA.Catalog.npcDamageEvents or {}
 
 local ACTION_LOOKUP_WINDOW = 1.8
 local SPECIAL_TARGET_WINDOW = 60
@@ -146,76 +114,16 @@ local RETENTION_SECONDS = 3 * 24 * 60 * 60
 -- Boss 数据
 -- ============================================================
 
-local TOC_DIALOGUE_BOSS_NAMES = {
-    ["诺森德猛兽"] = true,
-    ["加拉克苏斯大王"] = true,
-    ["阵营冠军"] = true,
-    ["瓦格里双子"] = true,
-}
+local TOC_DIALOGUE_BOSS_NAMES = WA.Catalog.tocDialogueBossNames or {}
 
 local function IsTocDialogueBoss(boss)
     return type(boss) == "table" and TOC_DIALOGUE_BOSS_NAMES[boss.name] == true
 end
 
-local DIALOGUE_NPCS = {
-    [34816] = {
-        name = "巴雷特·拉姆瑟",
-        raid = "十字军的试炼",
-        label = "对话开怪",
-    },
-    [35909] = {
-        name = "巴雷特·拉姆瑟",
-        raid = "十字军的试炼",
-        label = "对话开怪",
-    },
-    [35035] = {
-        name = "巴雷特·拉姆瑟",
-        raid = "十字军的试炼",
-        label = "对话开怪",
-    },
-    [35766] = {
-        name = "巴雷特·拉姆瑟",
-        raid = "十字军的试炼",
-        label = "对话开怪",
-    },
-    [35770] = {
-        name = "巴雷特·拉姆瑟",
-        raid = "十字军的试炼",
-        label = "对话开怪",
-    },
-    [33210] = {
-        name = "远征军指挥官",
-        raid = "奥杜尔",
-        label = "对话开怪",
-    },
-}
-
-local ADD_NAME_OVERRIDES = {
-    [25588] = "欺诈者之手",
-}
-
-local OPENING_NAME_OVERRIDES = {
-    [34816] = "巴雷特·拉姆瑟",
-    [35909] = "巴雷特·拉姆瑟",
-    [35035] = "巴雷特·拉姆瑟",
-    [35766] = "巴雷特·拉姆瑟",
-    [35770] = "巴雷特·拉姆瑟",
-}
-
-local RAID_ORDER = {
-    "熔火之心",
-    "毒蛇神殿",
-    "风暴要塞",
-    "纳克萨玛斯",
-    "黑曜石圣殿",
-    "永恒之眼",
-    "阿尔卡冯的宝库",
-    "祖尔格拉布",
-    "十字军的试炼",
-    "祖阿曼",
-    "太阳井高地",
-    "奥杜尔",
-}
+local DIALOGUE_NPCS = WA.Catalog.dialogueNpcs or {}
+local ADD_NAME_OVERRIDES = WA.Catalog.addNameOverrides or {}
+local OPENING_NAME_OVERRIDES = WA.Catalog.openingNameOverrides or {}
+local RAID_ORDER = WA.Catalog.raidOrder or {}
 
 local BOSS_LIST = {}
 local BOSS_BY_ID = {}
@@ -278,126 +186,13 @@ local function AliasBoss(alias, bossName)
     end
 end
 
--- 熔火之心
-AddBoss("熔火之心", "鲁西弗隆", { 12118 })
-AddBoss("熔火之心", "玛格曼达", { 11982 })
-AddBoss("熔火之心", "基赫纳斯", { 12259 }, nil, { 11661 })
-AddBoss("熔火之心", "加尔", { 12057 }, nil, { 12099 })
-AddBoss("熔火之心", "沙斯拉尔", { 12264 })
-AddBoss("熔火之心", "迦顿男爵", { 12056 })
-AddBoss("熔火之心", "萨弗隆先驱者", { 12098 }, nil, { 11662 })
-AddBoss("熔火之心", "焚化者古雷曼格", { 11988 }, nil, { 11672 })
-AddBoss("熔火之心", "管理者埃克索图斯", { 12018 }, nil, { 11663, 11664 })
-AddBoss("熔火之心", "拉格纳罗斯", { 11502 }, nil, { 12143 })
+for _, definition in ipairs(WA.Catalog.bossDefinitions or {}) do
+    AddBoss(definition[1], definition[2], definition[3], definition[4], definition[5])
+end
 
--- 毒蛇神殿
-AddBoss("毒蛇神殿", "不稳定的海度斯", { 21216 }, nil, { 22035, 22036 })
-AddBoss("毒蛇神殿", "鱼斯拉", { 21217 }, nil, { 21865, 21873 })
-AddBoss("毒蛇神殿", "盲眼者莱欧瑟拉斯", { 21215 }, { 21806 }, { 21857, 21875 })
-AddBoss("毒蛇神殿", "深水领主卡拉瑟雷斯", { 21214, 21964, 21965, 21966 }, { 22119, 22120, 22091, 22486, 22487 })
-AddBoss("毒蛇神殿", "莫洛格里·踏潮者", { 21213 }, { 21920 })
-AddBoss("毒蛇神殿", "瓦丝琪", { 21212 }, { 21958, 22009, 22055, 22056, 22140 })
-
--- 风暴要塞
-AddBoss("风暴要塞", "奥", { 19514 }, { 19551 })
-AddBoss("风暴要塞", "空灵机甲", { 19516 })
-AddBoss("风暴要塞", "大星术师索兰莉安", { 18805 }, { 18806, 18925 })
-AddBoss("风暴要塞", "凯尔萨斯·逐日者", { 19622, 20060, 20062, 20063, 20064 }, nil,
-    { 21268, 21269, 21270, 21271, 21272, 21273, 21274, 21362, 21364 })
-
--- 纳克萨玛斯
-AddBoss("纳克萨玛斯", "阿努布雷坎", { 15956 }, { 16573 }, { 16698 })
-AddBoss("纳克萨玛斯", "黑女巫法琳娜", { 15953 }, nil, { 16505, 16506 })
-AddBoss("纳克萨玛斯", "迈克斯纳", { 15952 }, { 17055, 16486 })
-AddBoss("纳克萨玛斯", "瘟疫使者诺斯", { 15954 }, { 16981, 16983, 16984 })
-AddBoss("纳克萨玛斯", "肮脏的希尔盖", { 15936 })
-AddBoss("纳克萨玛斯", "洛欧塞布", { 16011 }, { 16286 })
-AddBoss("纳克萨玛斯", "帕奇维克", { 16028 })
-AddBoss("纳克萨玛斯", "格罗布鲁斯", { 15931 }, { 16290 })
-AddBoss("纳克萨玛斯", "格拉斯", { 15932 }, { 16360 })
-AddBoss("纳克萨玛斯", "塔迪乌斯", { 15928, 15929, 15930 })
-AddBoss("纳克萨玛斯", "教官拉苏维奥斯", { 16061 }, { 16803 })
-AddBoss("纳克萨玛斯", "收割者戈提克", { 16060 }, { 16124, 16125, 16126, 16127, 16148, 16149, 16150 })
-AddBoss("纳克萨玛斯", "天启四骑士", { 16063, 16065, 30549, 16064 })
-AddBoss("纳克萨玛斯", "萨菲隆", { 15989 })
-AddBoss("纳克萨玛斯", "克尔苏加德", { 15990 }, { 16427, 23561, 16428, 23562, 16429, 16441 })
-
--- 黑曜石圣殿、永恒之眼
-AddBoss("黑曜石圣殿", "萨塔里奥", { 28860 }, { 30449, 30451, 30452, 30643, 30890, 31218 })
-AddBoss("永恒之眼", "玛里苟斯", { 28859 }, { 30084, 30245, 30249 })
-
--- 阿尔卡冯的宝库
-AddBoss("阿尔卡冯的宝库", "岩石看守者阿尔卡冯", { 31125 })
-AddBoss("阿尔卡冯的宝库", "风暴看守者埃玛尔隆", { 33993 })
-AddBoss("阿尔卡冯的宝库", "烈焰看守者科拉隆", { 35013 })
-AddBoss("阿尔卡冯的宝库", "寒冰看守者图拉旺", { 38433 }, { 38456 })
-
--- 祖尔格拉布
-AddBoss("祖尔格拉布", "高阶祭司耶克里克", { 14517 })
-AddBoss("祖尔格拉布", "高阶祭司温诺希斯", { 14507 }, nil, { 11373 })
-AddBoss("祖尔格拉布", "高阶祭司玛尔里", { 14510 }, nil, { 15041 })
-AddBoss("祖尔格拉布", "血领主曼多基尔", { 11382 }, { 14988 })
-AddBoss("祖尔格拉布", "疯狂之缘", { 15082, 15083, 15084, 15085 }, nil, { 15163 })
-AddBoss("祖尔格拉布", "高阶祭司塞卡尔", { 14509, 11347, 11348 }, nil, { 166359 })
-AddBoss("祖尔格拉布", "加兹兰卡", { 15114 })
-AddBoss("祖尔格拉布", "高阶祭司娅尔罗", { 14515 }, nil, { 15101 })
-AddBoss("祖尔格拉布", "妖术师金度", { 11380 }, nil, { 14987, 15112, 14986 })
-AddBoss("祖尔格拉布", "哈卡", { 14834 })
-
--- 十字军的试炼
-AddBoss("十字军的试炼", "诺森德猛兽", { 34796, 35144, 34799, 34797 }, { 34800 }, { 34816, 35909 })
-AddBoss("十字军的试炼", "加拉克苏斯大王", { 34780 }, { 34826, 34815, 34813, 34825 }, { 35035 })
-AddBoss("十字军的试炼", "阵营冠军", {
-    34461, 34460, 34469, 34467, 34468, 34465, 34471, 34466, 34473, 34472, 34470,
-    34463, 34474, 34475, 34458, 34451, 34459, 34448, 34449, 34445, 34456, 34447,
-    34441, 34454, 34444, 34455, 34450, 34453,
-}, { 35610, 35465, 34686, 34687 }, { 5925, 6112, 36070, 35766 })
-AddBoss("十字军的试炼", "瓦格里双子", { 34497, 34496 }, nil, { 35770 })
-AddBoss("十字军的试炼", "阿努巴拉克", { 34564 }, { 34607, 34605, 34606 })
-
--- 祖阿曼
-AddBoss("祖阿曼", "埃基尔松", { 23574 }, { 24858 })
-AddBoss("祖阿曼", "纳洛拉克", { 23576 })
-AddBoss("祖阿曼", "加亚莱", { 23578 }, { 23598, 23818, 24504 })
-AddBoss("祖阿曼", "哈尔拉兹", { 23577, 24144 }, { 24143, 24224 })
-AddBoss("祖阿曼", "妖术领主玛拉卡斯", { 24239 }, nil, { 24240, 24241, 24242, 24243, 24244, 24245, 24246, 24247 })
-AddBoss("祖阿曼", "祖尔金", { 23863 }, { 24338, 24320 }, { 23889 })
-
--- 太阳井高地
-AddBoss("太阳井高地", "卡雷苟斯", { 24850, 24892 })
-AddBoss("太阳井高地", "布鲁塔卢斯", { 24882 })
-AddBoss("太阳井高地", "菲米丝", { 25038 }, { 25268 })
-AddBoss("太阳井高地", "艾瑞达双子", { 25165, 25166 }, { 25214 })
-AddBoss("太阳井高地", "穆鲁", { 25741, 25840 }, { 25744, 25772, 25798, 25799, 25824 })
-AddBoss("太阳井高地", "基尔加丹", { 25315 }, { 25588, 25598, 25502, 25708 }, { 25955 })
-
--- 奥杜尔
-AddBoss("奥杜尔", "烈焰巨兽", { 33113 }, { 33139 })
-AddBoss("奥杜尔", "掌炉者伊格尼斯", { 33118 }, { 33121 })
-AddBoss("奥杜尔", "锋鳞", { 33186 }, { 33388, 33453, 33846 }, { 33210 })
-AddBoss("奥杜尔", "XT-002拆解者", { 33293 }, {
-    33329, 34004, 33343, 33344, 33346, 34267, 34269, 34271, 34273, 34288,
-})
-AddBoss("奥杜尔", "钢铁议会", { 32857, 32867, 32927 })
-AddBoss("奥杜尔", "科隆加恩", { 32930, 32933, 32934 }, { 33768 })
-AddBoss("奥杜尔", "欧尔莉亚", { 33515 }, { 34014, 34034, 34035 })
-AddBoss("奥杜尔", "霍迪尔", { 32845 }, { 32926, 32938 })
-AddBoss("奥杜尔", "托里姆", { 32865 }, { 33196, 32883, 32907, 32882 }, { 32876, 32877, 32878, 33125 })
-AddBoss("奥杜尔", "弗蕾亚", { 32906 }, { 32913, 32914, 32915, 32916, 32918, 32919, 33168 })
-AddBoss("奥杜尔", "米米尔隆", { 33350, 33432, 33651, 33670 }, { 33836, 33855, 34057, 34071, 34147 })
-AddBoss("奥杜尔", "维扎克斯将军", { 33271 }, { 33524, 33488 })
-AddBoss("奥杜尔", "尤格-萨隆", { 33288, 33890 }, { 33136, 33966, 33983, 33985, 33988 })
-AddBoss("奥杜尔", "观察者奥尔加隆", { 32871 }, { 32955, 33052, 33089, 34097 })
-
-AliasBoss("药剂师诺斯", "瘟疫使者诺斯")
-AliasBoss("迈顿男爵", "迦顿男爵")
-AliasBoss("尤格萨隆", "尤格-萨隆")
-AliasBoss("穿刺者戈莫克", "诺森德猛兽")
-AliasBoss("酸喉", "诺森德猛兽")
-AliasBoss("恐鳞", "诺森德猛兽")
-AliasBoss("冰吼", "诺森德猛兽")
-AliasBoss("光明邪使菲奥拉", "瓦格里双子")
-AliasBoss("黑暗邪使艾蒂丝", "瓦格里双子")
+for _, alias in ipairs(WA.Catalog.bossAliases or {}) do
+    AliasBoss(alias[1], alias[2])
+end
 
 local function NpcIDFromGUID(guid)
     if type(guid) ~= "string" then return nil end
@@ -2839,6 +2634,8 @@ local function ResetCombatState(reason)
     WhoAdd.firstCombatGUID = nil
     WhoAdd.firstCombatUnit = nil
     WhoAdd.firstCombatAt = nil
+    local yogg = WhoAdd.YoggPrison
+    if yogg and yogg.Reset then yogg.Reset() end
     BuildPetMap()
     DebugPrint("战斗状态重置: " .. tostring(reason))
 end
@@ -4214,7 +4011,7 @@ RefreshBossList = function()
     lines[#lines + 1] = UI.hex.success .. "特殊规则|r"
     lines[#lines + 1] = "  · 十字军的试炼 1-4：诺森德猛兽使用 34816/35909，加拉克苏斯使用 35035，阵营冠军使用 35766，瓦格里双子使用 35770；同时合并对话者与正常 BOSS/ADD 开怪者。"
     lines[#lines + 1] = "  · 锋鳞：团队目标指向远征军指挥官 33210 后，沿用对话开怪检测。"
-    lines[#lines + 1] = "  · 尤格-萨隆：使用首个进入战斗的团队成员判定开怪，守护者和触须不作为开怪依据。"
+    lines[#lines + 1] = "  · 尤格-萨隆：监狱场景内首个进入战斗的团队成员立即触发开怪，不等 BOSS 本体；守护者和触须不作为单独开怪依据。"
     lines[#lines + 1] = "  · 基尔加丹：欺诈者之手 25588 记录为关联小怪，并参与“仅通报团队 Boss”范围。"
     lines[#lines + 1] = "  · 首领召唤出的 NPC 若未静态列出，会依据 SPELL_SUMMON 来源动态归入对应首领。"
 
@@ -4383,6 +4180,27 @@ function WhoAdd.RefreshMinimapIcon()
     end
 end
 
+-- 独立模块使用的窄接口。模块文件在 WhoAdd.lua 之后加载。
+WA.WhoAdd = WhoAdd
+WhoAdd.Runtime = {
+    BuildRosterCache = BuildRosterCache,
+    BuildPetMap = BuildPetMap,
+    CaptureSnapshot = CaptureSnapshot,
+    ResolveOwner = ResolveOwner,
+    NpcIDFromGUID = NpcIDFromGUID,
+    UnitTargetToken = UnitTargetToken,
+    ReportPull = ReportPull,
+    DebugPrint = DebugPrint,
+    GetGroupUnits = function() return groupUnits end,
+    GetBossByName = function(name) return BOSS_BY_NAME[name] end,
+    EnsureCombatStarted = function() combatStartedAt = combatStartedAt or GetTime() end,
+}
+
+function WhoAdd.StartYoggPrisonWatcher()
+    local module = WhoAdd.YoggPrison
+    if module and module.StartWatcher then module.StartWatcher() end
+end
+
 -- ============================================================
 -- 事件
 -- ============================================================
@@ -4409,7 +4227,7 @@ end)
 WhoAdd:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" then
         local loadedAddon = ...
-        if addonName and loadedAddon and loadedAddon ~= addonName then return end
+        if WA.addonName and loadedAddon and loadedAddon ~= WA.addonName then return end
         InitDatabase()
         if not WhoAddBootAnnounced then
             WhoAddBootAnnounced = true
@@ -4431,10 +4249,12 @@ WhoAdd:SetScript("OnEvent", function(_, event, ...)
             dynamicAddBoss = {}
         end
         if AnyoneInCombat() then
-            suppressCurrentCombat = true
+            local yogg = WhoAdd.YoggPrison
+            suppressCurrentCombat = not (yogg and yogg.IsScene and yogg.IsScene())
         else
             ResetCombatState("entering_world")
         end
+        WhoAdd.StartYoggPrisonWatcher()
         return
     end
 
@@ -4447,6 +4267,7 @@ WhoAdd:SetScript("OnEvent", function(_, event, ...)
     if event == "GROUP_ROSTER_UPDATE" or event == "UNIT_PET" then
         BuildRosterCache()
         BuildPetMap()
+        WhoAdd.StartYoggPrisonWatcher()
         UpdateScanState()
         ScheduleScan(0.05)
         return
@@ -4457,6 +4278,7 @@ WhoAdd:SetScript("OnEvent", function(_, event, ...)
         combatStartedAt = combatStartedAt or GetTime()
         BuildRosterCache()
         BuildPetMap()
+        WhoAdd.StartYoggPrisonWatcher()
         if not bossReported then
             local openingBoss
             local openingAt
@@ -4592,6 +4414,8 @@ WhoAdd:SetScript("OnEvent", function(_, event, ...)
 
     if event == "UNIT_FLAGS" then
         local unit = ...
+        local yogg = WhoAdd.YoggPrison
+        if yogg and yogg.ObserveUnit then yogg.ObserveUnit(unit) end
         if not combatStartedAt and not WhoAdd.firstCombatPlayer
             and unit and UnitAffectingCombat(unit) then
             local isGroupUnit = unit == "player"
@@ -4631,17 +4455,22 @@ WhoAdd:SetScript("OnEvent", function(_, event, ...)
 
     if event == "PLAYER_TARGET_CHANGED" or event == "UPDATE_MOUSEOVER_UNIT"
         or event == "NAME_PLATE_UNIT_ADDED" or event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
+        if event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then WhoAdd.StartYoggPrisonWatcher() end
         CheckSpecialTargetForUnit("player")
         EvaluateNpcTarget("target", "TARGET")
         ScheduleScan(0.03)
         return
     end
 
-    if event == "ZONE_CHANGED_NEW_AREA" then
+    if event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED"
+        or event == "ZONE_CHANGED_INDOORS" then
         lastZoneName = GetRealZoneText and GetRealZoneText() or nil
-        deadMobs = {}
-        dynamicAddBoss = {}
-        ResetCombatState("zone_changed")
+        if event == "ZONE_CHANGED_NEW_AREA" then
+            deadMobs = {}
+            dynamicAddBoss = {}
+            ResetCombatState("zone_changed")
+        end
+        WhoAdd.StartYoggPrisonWatcher()
         UpdateScanState()
         return
     end
