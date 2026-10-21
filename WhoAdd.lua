@@ -5,7 +5,7 @@
 local addonName = ...
 
 local WhoAdd = CreateFrame("Frame")
-local WhoAddVersion = "4.6.6"
+local WhoAddVersion = "4.6.7"
 WhoAdd.loadStage = "初始化"
 _G.WhoAddVersion = WhoAddVersion
 
@@ -153,6 +153,11 @@ local DIALOGUE_NPCS = {
         label = "对话开怪",
         raidWide = true,
     },
+    [35035] = {
+        name = "巴雷特·拉姆瑟",
+        raid = "十字军的试炼",
+        label = "对话开怪",
+    },
     [33210] = {
         name = "远征军指挥官",
         raid = "奥杜尔",
@@ -166,6 +171,7 @@ local ADD_NAME_OVERRIDES = {
 
 local OPENING_NAME_OVERRIDES = {
     [34816] = "巴雷特·拉姆瑟",
+    [35035] = "巴雷特·拉姆瑟",
 }
 
 local RAID_ORDER = {
@@ -312,7 +318,7 @@ AddBoss("祖尔格拉布", "哈卡", { 14834 })
 
 -- 十字军的试炼
 AddBoss("十字军的试炼", "诺森德猛兽", { 34796, 35144, 34799, 34797 }, { 34800 })
-AddBoss("十字军的试炼", "加拉克苏斯大王", { 34780 }, { 34826, 34815, 34813, 34825 })
+AddBoss("十字军的试炼", "加拉克苏斯大王", { 34780 }, { 34826, 34815, 34813, 34825 }, { 35035 })
 AddBoss("十字军的试炼", "阵营冠军", {
     34461, 34460, 34469, 34467, 34468, 34465, 34471, 34466, 34473, 34472, 34470,
     34463, 34474, 34475, 34458, 34451, 34459, 34448, 34449, 34445, 34456, 34447,
@@ -3679,7 +3685,7 @@ RefreshBossList = function()
     end
 
     lines[#lines + 1] = UI.hex.success .. "特殊规则|r"
-    lines[#lines + 1] = "  · 十字军的试炼：团队目标指向 NPC 34816 后，在遭遇战开始或短暂进战时确认对话开怪者。"
+    lines[#lines + 1] = "  · 十字军的试炼：诺森德猛兽使用 NPC 34816，加拉克苏斯使用 NPC 35035，在遭遇战开始或短暂进战时确认对话开怪者。"
     lines[#lines + 1] = "  · 锋鳞：团队目标指向远征军指挥官 33210 后，沿用对话开怪检测。"
     lines[#lines + 1] = "  · 尤格-萨隆：使用首个进入战斗的团队成员判定开怪，守护者和触须不作为开怪依据。"
     lines[#lines + 1] = "  · 基尔加丹：欺诈者之手 25588 记录为关联小怪，并参与“仅通报团队 Boss”范围。"
