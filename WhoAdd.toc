@@ -1,0 +1,12 @@
+## Interface: 38001
+## Title: WhoAdd - 首拉通报与快照
+## Notes: 首拉通报、全团快照与最近3天历史记录
+## Author: 甜甜哥不口胡-时光VI
+## Version: 4.6.2
+## SavedVariables: WhoAddDB
+
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+WhoAdd.lua
