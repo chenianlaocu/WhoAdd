@@ -2,7 +2,7 @@
 ## Title: WhoAdd - 首拉通报与快照
 ## Notes: 首拉通报、全团快照与最近3天历史记录
 ## Author: 甜甜哥不口胡-时光VI
-## Version: 4.6.9
+## Version: 4.6.10
 ## SavedVariables: WhoAddDB
 
 Libs\LibStub\LibStub.lua

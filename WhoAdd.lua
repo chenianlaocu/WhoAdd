@@ -5,7 +5,7 @@
 local addonName = ...
 
 local WhoAdd = CreateFrame("Frame")
-local WhoAddVersion = "4.6.9"
+local WhoAddVersion = "4.6.10"
 WhoAdd.loadStage = "初始化"
 _G.WhoAddVersion = WhoAddVersion
 
@@ -491,7 +491,7 @@ local DEFAULT_TEMPLATE = DEFAULT_TEMPLATE_LEAD .. "{puller} {type} {mob}{distanc
 local DEFAULT_TEMPLATE_TOKENS = { "puller", "type", "mob", "distance" }
 local TEMPLATE_TOKEN_DEFS = {
     { key = "puller", label = "开怪者" },
-    { key = "dialogue", label = "对话人" },
+    { key = "npc", label = "对话人" },
     { key = "mob", label = "开怪目标" },
     { key = "type", label = "动作" },
     { key = "distance", label = "距离" },
@@ -501,7 +501,9 @@ local TEMPLATE_TOKEN_DEFS = {
     { key = "source", label = "检测来源" },
     { key = "npcid", label = "NPC ID" },
     { key = "count", label = "团队人数" },
-    { key = "npc", label = "带标签对话人" },
+}
+local TEMPLATE_TOKEN_ALIASES = {
+    dialogue = "npc",
 }
 local TEMPLATE_TOKEN_LABELS = {}
 local TEMPLATE_TOKEN_SET = {}
@@ -515,6 +517,7 @@ local function NormalizeTemplateTokens(tokens)
     local seen = {}
     if type(tokens) ~= "table" then return result end
     for _, key in ipairs(tokens) do
+        key = TEMPLATE_TOKEN_ALIASES[key] or key
         if TEMPLATE_TOKEN_SET[key] and not seen[key] then
             seen[key] = true
             result[#result + 1] = key
@@ -537,6 +540,7 @@ local function ParseTemplateDefinition(template)
         local tokenStart, tokenEnd = template:find("{%w+}", searchAt)
         if not tokenStart then break end
         local key = template:sub(tokenStart + 1, tokenEnd - 1)
+        key = TEMPLATE_TOKEN_ALIASES[key] or key
         if TEMPLATE_TOKEN_SET[key] then
             if not seen[key] then
                 seen[key] = true
@@ -2208,8 +2212,9 @@ local function RenderTemplate(record, templateOverride)
         source = record.sourceLabel or record.source or "",
         npcid = record.npcID and tostring(record.npcID) or "",
         count = record.snapshot and tostring(#record.snapshot.players) or "0",
-        dialogue = record.npcClickerChat or "",
         npc = record.npcClickerChat and ("对话人：" .. record.npcClickerChat) or "",
+        -- 兼容 4.6.9 及更早模板；构建器和新存档统一使用 {npc}。
+        dialogue = record.npcClickerChat and ("对话人：" .. record.npcClickerChat) or "",
     }
 
     local message = template:gsub("{(%w+)}", function(key)
