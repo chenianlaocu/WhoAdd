@@ -6,7 +6,7 @@ local WA = select(2, ...)
 WA.addonName = ...
 
 local WhoAdd = CreateFrame("Frame")
-local WhoAddVersion = "4.6.12"
+local WhoAddVersion = "4.6.13"
 WhoAdd.loadStage = "初始化"
 _G.WhoAddVersion = WhoAddVersion
 
@@ -2705,6 +2705,15 @@ local function HandleCombatLog()
     local destIsGroup = IsGroupActor(destGUID, destName, destFlags)
     local sourceIsGroup = IsGroupActor(sourceGUID, sourceName, sourceFlags)
 
+    -- 尤格监狱场景：首个有效伤害事件立即归给攻击者，不等待首领单位出现。
+    local yogg = WhoAdd.YoggPrison
+    if yogg and yogg.ObserveCombatLog and sourceIsGroup
+        and bit.band(destFlags, OBJ_REACTION_HOSTILE) > 0
+        and ATTACK_EVENTS[subevent]
+        and not IsNonEngagingSpell(spellId, spellName) then
+        yogg.ObserveCombatLog(sourceName, sourceGUID, true, destGUID, destName)
+    end
+
     -- 团队成员攻击 NPC
     if sourceIsGroup and destIsNPC then
         local boss, role, npcId = GetPullInfo(destGUID, destName)
@@ -4187,13 +4196,16 @@ WhoAdd.Runtime = {
     BuildPetMap = BuildPetMap,
     CaptureSnapshot = CaptureSnapshot,
     ResolveOwner = ResolveOwner,
+    ResolveOwnerByGUID = ResolveOwnerByGUID,
     NpcIDFromGUID = NpcIDFromGUID,
     UnitTargetToken = UnitTargetToken,
+    FindUnitForGUID = FindUnitForGUID,
     ReportPull = ReportPull,
     DebugPrint = DebugPrint,
     GetGroupUnits = function() return groupUnits end,
     GetBossByName = function(name) return BOSS_BY_NAME[name] end,
     EnsureCombatStarted = function() combatStartedAt = combatStartedAt or GetTime() end,
+    AllowCurrentCombatReport = function() suppressCurrentCombat = false end,
 }
 
 function WhoAdd.StartYoggPrisonWatcher()
@@ -4455,7 +4467,9 @@ WhoAdd:SetScript("OnEvent", function(_, event, ...)
 
     if event == "PLAYER_TARGET_CHANGED" or event == "UPDATE_MOUSEOVER_UNIT"
         or event == "NAME_PLATE_UNIT_ADDED" or event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
-        if event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then WhoAdd.StartYoggPrisonWatcher() end
+        if event == "NAME_PLATE_UNIT_ADDED" or event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
+            WhoAdd.StartYoggPrisonWatcher()
+        end
         CheckSpecialTargetForUnit("player")
         EvaluateNpcTarget("target", "TARGET")
         ScheduleScan(0.03)
@@ -4465,6 +4479,8 @@ WhoAdd:SetScript("OnEvent", function(_, event, ...)
     if event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED"
         or event == "ZONE_CHANGED_INDOORS" then
         lastZoneName = GetRealZoneText and GetRealZoneText() or nil
+        local yogg = WhoAdd.YoggPrison
+        if yogg and yogg.InvalidateScene then yogg.InvalidateScene() end
         if event == "ZONE_CHANGED_NEW_AREA" then
             deadMobs = {}
             dynamicAddBoss = {}
