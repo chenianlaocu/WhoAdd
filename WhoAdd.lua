@@ -5,7 +5,7 @@
 local addonName = ...
 
 local WhoAdd = CreateFrame("Frame")
-local WhoAddVersion = "4.6.7"
+local WhoAddVersion = "4.6.8"
 WhoAdd.loadStage = "初始化"
 _G.WhoAddVersion = WhoAddVersion
 
@@ -146,14 +146,39 @@ local RETENTION_SECONDS = 3 * 24 * 60 * 60
 -- Boss 数据
 -- ============================================================
 
+local TOC_DIALOGUE_BOSS_NAMES = {
+    ["诺森德猛兽"] = true,
+    ["加拉克苏斯大王"] = true,
+    ["阵营冠军"] = true,
+    ["瓦格里双子"] = true,
+}
+
+local function IsTocDialogueBoss(boss)
+    return type(boss) == "table" and TOC_DIALOGUE_BOSS_NAMES[boss.name] == true
+end
+
 local DIALOGUE_NPCS = {
     [34816] = {
         name = "巴雷特·拉姆瑟",
         raid = "十字军的试炼",
         label = "对话开怪",
-        raidWide = true,
+    },
+    [35909] = {
+        name = "巴雷特·拉姆瑟",
+        raid = "十字军的试炼",
+        label = "对话开怪",
     },
     [35035] = {
+        name = "巴雷特·拉姆瑟",
+        raid = "十字军的试炼",
+        label = "对话开怪",
+    },
+    [35766] = {
+        name = "巴雷特·拉姆瑟",
+        raid = "十字军的试炼",
+        label = "对话开怪",
+    },
+    [35770] = {
         name = "巴雷特·拉姆瑟",
         raid = "十字军的试炼",
         label = "对话开怪",
@@ -171,7 +196,10 @@ local ADD_NAME_OVERRIDES = {
 
 local OPENING_NAME_OVERRIDES = {
     [34816] = "巴雷特·拉姆瑟",
+    [35909] = "巴雷特·拉姆瑟",
     [35035] = "巴雷特·拉姆瑟",
+    [35766] = "巴雷特·拉姆瑟",
+    [35770] = "巴雷特·拉姆瑟",
 }
 
 local RAID_ORDER = {
@@ -317,16 +345,15 @@ AddBoss("祖尔格拉布", "妖术师金度", { 11380 }, nil, { 14987, 15112, 14
 AddBoss("祖尔格拉布", "哈卡", { 14834 })
 
 -- 十字军的试炼
-AddBoss("十字军的试炼", "诺森德猛兽", { 34796, 35144, 34799, 34797 }, { 34800 })
+AddBoss("十字军的试炼", "诺森德猛兽", { 34796, 35144, 34799, 34797 }, { 34800 }, { 34816, 35909 })
 AddBoss("十字军的试炼", "加拉克苏斯大王", { 34780 }, { 34826, 34815, 34813, 34825 }, { 35035 })
 AddBoss("十字军的试炼", "阵营冠军", {
     34461, 34460, 34469, 34467, 34468, 34465, 34471, 34466, 34473, 34472, 34470,
     34463, 34474, 34475, 34458, 34451, 34459, 34448, 34449, 34445, 34456, 34447,
     34441, 34454, 34444, 34455, 34450, 34453,
-}, { 35610, 35465, 34686, 34687 }, { 5925, 6112, 36070 })
-AddBoss("十字军的试炼", "瓦格里双子", { 34497, 34496 })
+}, { 35610, 35465, 34686, 34687 }, { 5925, 6112, 36070, 35766 })
+AddBoss("十字军的试炼", "瓦格里双子", { 34497, 34496 }, nil, { 35770 })
 AddBoss("十字军的试炼", "阿努巴拉克", { 34564 }, { 34607, 34605, 34606 })
-AddBoss("十字军的试炼", "十字军的试炼（对话开怪）", nil, nil, { 34816 })
 
 -- 祖阿曼
 AddBoss("祖阿曼", "埃基尔松", { 23574 }, { 24858 })
@@ -504,6 +531,7 @@ local activeBossGUID
 local bossReported = false
 local bossEngagedAt
 local initialAddReports = 0
+local dialogueFallbackGeneration = 0
 local combatStartedAt
 local firstPullReported = false
 local lastZoneName
@@ -1992,7 +2020,7 @@ local function ShowPullPopup(record, force)
         target, record.sourceLabel or record.source or "未知来源"))
 
     if record.npcClickerText and record.npcClickerText ~= "" then
-        popupNpc:SetText(UI.hex.accent .. "NPC 点击者|r\n" ..
+        popupNpc:SetText(UI.hex.accent .. "对话开怪者|r\n" ..
             UI.hex.dim .. string.gsub(record.npcClickerText, "、", "\n") .. "|r")
         popupNpc:Show()
         popup:SetHeight(math.min(390, math.max(132, 116 + popupNpc:GetStringHeight())))
@@ -2044,7 +2072,8 @@ local function RenderTemplate(record)
         source = record.sourceLabel or record.source or "",
         npcid = record.npcID and tostring(record.npcID) or "",
         count = record.snapshot and tostring(#record.snapshot.players) or "0",
-        npc = record.npcClickerChat and (" NPC点击：" .. record.npcClickerChat) or "",
+        dialogue = record.npcClickerChat or "",
+        npc = record.npcClickerChat and (" 对话人：" .. record.npcClickerChat) or "",
     }
 
     local message = template:gsub("{(%w+)}", function(key)
@@ -2187,7 +2216,9 @@ local function ReportPull(info)
         return nil
     end
 
-    if role == "boss" and not info.npcClickers then
+    local attachDialogue = role == "boss"
+        or (role == "add" and IsTocDialogueBoss(info.boss))
+    if attachDialogue and not info.npcClickers then
         local clickerEncounter = info.bossName
             or (activeEncounter and activeEncounter.name)
             or (info.boss and info.boss.name)
@@ -2263,8 +2294,8 @@ local function ReportPull(info)
 
         local message = RenderTemplate(record)
         if record.npcClickerChat and record.npcClickerChat ~= ""
-            and not message:find("NPC点击", 1, true) then
-            message = TrimMessage(message .. " NPC点击：" .. record.npcClickerChat)
+            and not message:find(record.npcClickerChat, 1, true) then
+            message = TrimMessage(message .. " 对话人：" .. record.npcClickerChat)
         end
         record.message = message
         if settings.textEnabled then
@@ -2276,7 +2307,8 @@ local function ReportPull(info)
         end
     end
 
-    if role == "boss" and info.npcClickers and #info.npcClickers > 0 then
+    if info.npcClickers and #info.npcClickers > 0 then
+        dialogueFallbackGeneration = dialogueFallbackGeneration + 1
         ClearNpcInteractions()
     end
 
@@ -2326,6 +2358,19 @@ local function ReportDialogueEncounter(encounterName)
         npcClickerChat = chatText,
         snapshot = CaptureSnapshot(bossGUID, firstClicker.npcName or encounterName, bossUnit),
     })
+end
+
+local function ScheduleDialogueFallback(boss, delay)
+    if not boss or not IsTocDialogueBoss(boss) then return end
+    dialogueFallbackGeneration = dialogueFallbackGeneration + 1
+    local generation = dialogueFallbackGeneration
+    After(delay or 0.8, function()
+        if generation ~= dialogueFallbackGeneration or bossReported then return end
+        local bossKey = "boss:" .. tostring(boss.raid or "") .. ":" .. tostring(boss.name)
+        if reportedMobs[bossKey] then return end
+        local record = ReportDialogueEncounter(boss.name)
+        if record then ClearNpcInteractions() end
+    end)
 end
 
 -- ============================================================
@@ -2644,6 +2689,7 @@ local function ResetCombatState(reason)
     bossReported = false
     bossEngagedAt = nil
     initialAddReports = 0
+    dialogueFallbackGeneration = dialogueFallbackGeneration + 1
     combatStartedAt = nil
     firstPullReported = false
     activeEncounter = nil
@@ -3101,7 +3147,7 @@ local function BuildRecordDetail(record)
         lines[#lines + 1] = record.message
     end
     if record.npcClickerText and record.npcClickerText ~= "" then
-        lines[#lines + 1] = UI.hex.accent .. "NPC 点击者|r"
+        lines[#lines + 1] = UI.hex.accent .. "对话开怪者|r"
         lines[#lines + 1] = string.gsub(record.npcClickerText, "、", "\n")
     end
     lines[#lines + 1] = ""
@@ -3412,8 +3458,9 @@ local templateHelp = UI.Label(settingsLeftCard, "", "GameFontNormalSmall", UI.co
 templateHelp:SetPoint("TOPLEFT", 16, -240)
 templateHelp:SetJustifyH("LEFT")
 templateHelp:SetWordWrap(true)
-templateHelp:SetText("占位符：{puller} 引怪者  {mob} 怪物  {type} 动作  {distance} 距离  " ..
-    "{boss} 首领  {raid} 副本  {time} 时间  {source} 来源  {npcid} NPC ID  {count} 人数  {npc} NPC点击者")
+templateHelp:SetText("占位符：{puller} 正常开怪者  {dialogue} 对话人  {mob} 怪物  {type} 动作  " ..
+    "{distance} 距离  {boss} 首领  {raid} 副本  {time} 时间  {source} 来源  {npcid} NPC ID  " ..
+    "{count} 人数  {npc} 带标签的对话人")
 
 local delayCheck = CreateSettingCheck(settingsLeftCard, "脱战后延迟通报", 16, -286, function(checked)
     settings.delayOutOfCombat = checked
@@ -3685,7 +3732,7 @@ RefreshBossList = function()
     end
 
     lines[#lines + 1] = UI.hex.success .. "特殊规则|r"
-    lines[#lines + 1] = "  · 十字军的试炼：诺森德猛兽使用 NPC 34816，加拉克苏斯使用 NPC 35035，在遭遇战开始或短暂进战时确认对话开怪者。"
+    lines[#lines + 1] = "  · 十字军的试炼 1-4：诺森德猛兽使用 34816/35909，加拉克苏斯使用 35035，阵营冠军使用 35766，瓦格里双子使用 35770；同时合并对话者与正常 BOSS/ADD 开怪者。"
     lines[#lines + 1] = "  · 锋鳞：团队目标指向远征军指挥官 33210 后，沿用对话开怪检测。"
     lines[#lines + 1] = "  · 尤格-萨隆：使用首个进入战斗的团队成员判定开怪，守护者和触须不作为开怪依据。"
     lines[#lines + 1] = "  · 基尔加丹：欺诈者之手 25588 记录为关联小怪，并参与“仅通报团队 Boss”范围。"
@@ -3948,8 +3995,12 @@ WhoAdd:SetScript("OnEvent", function(_, event, ...)
                 end
             end
             if openingBoss then
-                local record = ReportDialogueEncounter(openingBoss.name)
-                if record then ClearNpcInteractions() end
+                if IsTocDialogueBoss(openingBoss) then
+                    ScheduleDialogueFallback(openingBoss, 0.8)
+                else
+                    local record = ReportDialogueEncounter(openingBoss.name)
+                    if record then ClearNpcInteractions() end
+                end
             end
         end
         ScheduleScan(0.03)
@@ -4032,8 +4083,13 @@ WhoAdd:SetScript("OnEvent", function(_, event, ...)
         end
         local clickers = GetNpcInteractionSummary(encounterName)
         if #clickers > 0 then
-            ReportDialogueEncounter(encounterName)
-            ClearNpcInteractions()
+            local dialogueBoss = BOSS_BY_NAME[encounterName] or registeredBoss
+            if IsTocDialogueBoss(dialogueBoss) then
+                ScheduleDialogueFallback(dialogueBoss, 0.8)
+            else
+                ReportDialogueEncounter(encounterName)
+                ClearNpcInteractions()
+            end
         end
         ScheduleScan(0.03)
         return
