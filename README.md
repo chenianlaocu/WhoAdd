@@ -34,7 +34,7 @@ WhoAdd 同时使用战斗日志、团队目标、NPC 交互和遭遇战事件进
 
 ## 安装
 
-1. 下载 Release 中的 `WhoAdd-4.6.10.zip` 并解压。
+1. 下载 Release 中的 `WhoAdd-4.6.11.zip` 并解压。
 2. 将 `WhoAdd` 文件夹放入：
 
    ```text
@@ -65,7 +65,7 @@ WhoAdd 同时使用战斗日志、团队目标、NPC 交互和遭遇战事件进
 默认模板：
 
 ```text
-[首拉] {puller} {npc} {type} {mob}{distance}
+[首拉] {puller} {type} {mob} {npc} {distance}
 ```
 
 设置页会显示当前模板的实时示例。点击“勾选并拖动占位符”可打开模板构建器：

@@ -5,7 +5,7 @@
 local addonName = ...
 
 local WhoAdd = CreateFrame("Frame")
-local WhoAddVersion = "4.6.10"
+local WhoAddVersion = "4.6.11"
 WhoAdd.loadStage = "初始化"
 _G.WhoAddVersion = WhoAddVersion
 
@@ -487,8 +487,8 @@ local DEFAULT_SOUND_KIT = (SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN)
     or 8960
 
 local DEFAULT_TEMPLATE_LEAD = "[首拉] "
-local DEFAULT_TEMPLATE = DEFAULT_TEMPLATE_LEAD .. "{puller} {npc} {type} {mob}{distance}"
-local DEFAULT_TEMPLATE_TOKENS = { "puller", "npc", "type", "mob", "distance" }
+local DEFAULT_TEMPLATE = DEFAULT_TEMPLATE_LEAD .. "{puller} {type} {mob} {npc} {distance}"
+local DEFAULT_TEMPLATE_TOKENS = { "puller", "type", "mob", "npc", "distance" }
 local TEMPLATE_TOKEN_DEFS = {
     { key = "puller", label = "开怪者" },
     { key = "npc", label = "对话人" },
