@@ -33,7 +33,7 @@ WhoAdd 同时使用战斗日志、团队目标、NPC 交互和遭遇战事件进
 
 ## 安装
 
-1. 下载 Release 中的 `WhoAdd-4.6.3.zip` 并解压。
+1. 下载 Release 中的 `WhoAdd-4.6.4.zip` 并解压。
 2. 将 `WhoAdd` 文件夹放入：
 
    ```text
