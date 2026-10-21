@@ -5,7 +5,7 @@
 local addonName = ...
 
 local WhoAdd = CreateFrame("Frame")
-local WhoAddVersion = "4.6.8"
+local WhoAddVersion = "4.6.9"
 WhoAdd.loadStage = "初始化"
 _G.WhoAddVersion = WhoAddVersion
 
@@ -486,9 +486,121 @@ local DEFAULT_SOUND_KIT = (SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN)
     or (SOUNDKIT and SOUNDKIT.RAID_WARNING)
     or 8960
 
+local DEFAULT_TEMPLATE_LEAD = "[首拉] "
+local DEFAULT_TEMPLATE = DEFAULT_TEMPLATE_LEAD .. "{puller} {type} {mob}{distance}"
+local DEFAULT_TEMPLATE_TOKENS = { "puller", "type", "mob", "distance" }
+local TEMPLATE_TOKEN_DEFS = {
+    { key = "puller", label = "开怪者" },
+    { key = "dialogue", label = "对话人" },
+    { key = "mob", label = "开怪目标" },
+    { key = "type", label = "动作" },
+    { key = "distance", label = "距离" },
+    { key = "boss", label = "所属首领" },
+    { key = "raid", label = "副本" },
+    { key = "time", label = "时间" },
+    { key = "source", label = "检测来源" },
+    { key = "npcid", label = "NPC ID" },
+    { key = "count", label = "团队人数" },
+    { key = "npc", label = "带标签对话人" },
+}
+local TEMPLATE_TOKEN_LABELS = {}
+local TEMPLATE_TOKEN_SET = {}
+for _, definition in ipairs(TEMPLATE_TOKEN_DEFS) do
+    TEMPLATE_TOKEN_LABELS[definition.key] = definition.label
+    TEMPLATE_TOKEN_SET[definition.key] = true
+end
+
+local function NormalizeTemplateTokens(tokens)
+    local result = {}
+    local seen = {}
+    if type(tokens) ~= "table" then return result end
+    for _, key in ipairs(tokens) do
+        if TEMPLATE_TOKEN_SET[key] and not seen[key] then
+            seen[key] = true
+            result[#result + 1] = key
+        end
+    end
+    return result
+end
+
+local function ParseTemplateDefinition(template)
+    template = type(template) == "string" and template or ""
+    local tokens = {}
+    local separators = {}
+    local seen = {}
+    local firstStart
+    local lastEnd
+    local previousTokenEnd
+    local searchAt = 1
+
+    while true do
+        local tokenStart, tokenEnd = template:find("{%w+}", searchAt)
+        if not tokenStart then break end
+        local key = template:sub(tokenStart + 1, tokenEnd - 1)
+        if TEMPLATE_TOKEN_SET[key] then
+            if not seen[key] then
+                seen[key] = true
+                tokens[#tokens + 1] = key
+                separators[#tokens] = previousTokenEnd
+                    and template:sub(previousTokenEnd + 1, tokenStart - 1) or ""
+                firstStart = firstStart or tokenStart
+            end
+            lastEnd = tokenEnd
+            previousTokenEnd = tokenEnd
+        end
+        searchAt = tokenEnd + 1
+    end
+
+    local lead = firstStart and template:sub(1, firstStart - 1) or template
+    local suffix = lastEnd and template:sub(lastEnd + 1) or ""
+    return tokens, lead, suffix, separators
+end
+
+local function BuildTemplateFromTokens(tokens, lead, suffix, separators)
+    tokens = NormalizeTemplateTokens(tokens)
+    lead = type(lead) == "string" and lead or ""
+    suffix = type(suffix) == "string" and suffix or ""
+
+    local output = lead
+    local previousKey
+    for index, key in ipairs(tokens) do
+        local token = "{" .. key .. "}"
+        if index == 1 then
+            output = output .. token
+        else
+            local separator = type(separators) == "table" and separators[index] or nil
+            if type(separator) ~= "string" then
+                separator = (key == "distance" and previousKey == "mob") and "" or " "
+            end
+            output = output .. separator .. token
+        end
+        previousKey = key
+    end
+    return output .. suffix
+end
+
+local function CopyTemplateTokens(tokens)
+    local result = {}
+    for _, key in ipairs(tokens or DEFAULT_TEMPLATE_TOKENS) do
+        result[#result + 1] = key
+    end
+    return result
+end
+
+local function CopyTemplateSeparators(separators)
+    if type(separators) ~= "table" then return nil end
+    local result = {}
+    for index = 1, #separators do result[index] = separators[index] end
+    return result
+end
+
 local settings = {
     reportMode = "boss",
-    template = "[首拉] {puller} {type} {mob}{distance}",
+    template = DEFAULT_TEMPLATE,
+    templateLead = DEFAULT_TEMPLATE_LEAD,
+    templateSuffix = "",
+    templateTokens = CopyTemplateTokens(DEFAULT_TEMPLATE_TOKENS),
+    templateSeparators = { "", " ", " ", "" },
     delayOutOfCombat = false,
     delaySeconds = 3,
     textEnabled = true,
@@ -546,11 +658,12 @@ local suppressCurrentCombat = false
 
 local settingsStatus
 local listFrame
-local templateEdit
 local delayEdit
 local reportModeLabels
 local modeButton
 local SetReportMode
+local SyncTemplateBuilderUI
+local OpenTemplateEditor
 local settingsControlsReady = false
 local selectedTab = 1
 local recordRows = {}
@@ -702,11 +815,28 @@ local function LoadSettings()
     end
     settings.reportMode = reportMode
 
-    if type(WhoAddDB.template) == "string" and WhoAddDB.template ~= "" then
-        settings.template = WhoAddDB.template
+    local storedTemplate = type(WhoAddDB.template) == "string" and WhoAddDB.template or ""
+    if storedTemplate == "" then storedTemplate = DEFAULT_TEMPLATE end
+    local parsedTokens, parsedLead, parsedSuffix, parsedSeparators =
+        ParseTemplateDefinition(storedTemplate)
+    if type(WhoAddDB.templateTokens) == "table" then
+        settings.templateTokens = NormalizeTemplateTokens(WhoAddDB.templateTokens)
     else
-        settings.template = "[首拉] {puller} {type} {mob}{distance}"
+        settings.templateTokens = parsedTokens
     end
+    settings.templateLead = type(WhoAddDB.templateLead) == "string"
+        and WhoAddDB.templateLead or parsedLead
+    settings.templateSuffix = type(WhoAddDB.templateSuffix) == "string"
+        and WhoAddDB.templateSuffix or parsedSuffix
+    if type(WhoAddDB.templateSeparators) == "table" then
+        settings.templateSeparators = CopyTemplateSeparators(WhoAddDB.templateSeparators)
+    elseif type(WhoAddDB.templateTokens) ~= "table" then
+        settings.templateSeparators = CopyTemplateSeparators(parsedSeparators)
+    else
+        settings.templateSeparators = nil
+    end
+    settings.template = BuildTemplateFromTokens(settings.templateTokens,
+        settings.templateLead, settings.templateSuffix, settings.templateSeparators)
 
     settings.delayOutOfCombat = WhoAddDB.delayOutOfCombat == true
     settings.delaySeconds = math.max(1, math.min(30, tonumber(WhoAddDB.delaySeconds) or 3))
@@ -729,13 +859,19 @@ end
 
 local function SaveSettings(silent)
     if type(WhoAddDB) ~= "table" then WhoAddDB = {} end
-    if settingsControlsReady and templateEdit then settings.template = templateEdit:GetText() end
     if settingsControlsReady and delayEdit then
         settings.delaySeconds = math.max(1, math.min(30, tonumber(delayEdit:GetText()) or settings.delaySeconds or 3))
     end
-    WhoAddDB.schema = 4
+    settings.templateTokens = NormalizeTemplateTokens(settings.templateTokens)
+    settings.template = BuildTemplateFromTokens(settings.templateTokens,
+        settings.templateLead, settings.templateSuffix, settings.templateSeparators)
+    WhoAddDB.schema = 5
     WhoAddDB.reportMode = settings.reportMode
     WhoAddDB.template = settings.template
+    WhoAddDB.templateLead = settings.templateLead
+    WhoAddDB.templateSuffix = settings.templateSuffix
+    WhoAddDB.templateTokens = CopyTemplateTokens(settings.templateTokens)
+    WhoAddDB.templateSeparators = CopyTemplateSeparators(settings.templateSeparators)
     WhoAddDB.delayOutOfCombat = settings.delayOutOfCombat and true or false
     WhoAddDB.delaySeconds = tonumber(settings.delaySeconds) or 3
     WhoAddDB.textEnabled = settings.textEnabled and true or false
@@ -2050,10 +2186,10 @@ local function SendMessage(message)
     end
 end
 
-local function RenderTemplate(record)
-    local template = settings.template
+local function RenderTemplate(record, templateOverride)
+    local template = templateOverride or settings.template
     if type(template) ~= "string" or template == "" then
-        template = "[首拉] {puller} {type} {mob}{distance}"
+        template = DEFAULT_TEMPLATE
     end
 
     local distance = ""
@@ -2073,12 +2209,13 @@ local function RenderTemplate(record)
         npcid = record.npcID and tostring(record.npcID) or "",
         count = record.snapshot and tostring(#record.snapshot.players) or "0",
         dialogue = record.npcClickerChat or "",
-        npc = record.npcClickerChat and (" 对话人：" .. record.npcClickerChat) or "",
+        npc = record.npcClickerChat and ("对话人：" .. record.npcClickerChat) or "",
     }
 
     local message = template:gsub("{(%w+)}", function(key)
         return values[key] or ""
     end)
+    message = message:gsub("[ \t]+", " "):gsub("^%s+", ""):gsub("%s+$", "")
     return TrimMessage(message)
 end
 
@@ -3308,7 +3445,12 @@ end
 
 ResetWhoAddSettings = function()
     settings.reportMode = "boss"
-    settings.template = "[首拉] {puller} {type} {mob}{distance}"
+    settings.templateLead = DEFAULT_TEMPLATE_LEAD
+    settings.templateSuffix = ""
+    settings.templateTokens = CopyTemplateTokens(DEFAULT_TEMPLATE_TOKENS)
+    settings.templateSeparators = nil
+    settings.template = BuildTemplateFromTokens(settings.templateTokens,
+        settings.templateLead, settings.templateSuffix)
     settings.delayOutOfCombat = false
     settings.delaySeconds = 3
     settings.textEnabled = true
@@ -3424,52 +3566,384 @@ modeButton:SetScript("OnClick", function()
     end
 end)
 
-CreateSettingLabel(settingsLeftCard, "自定义文字通报模板", 16, -136)
-templateEdit = UI.EditBox(settingsLeftCard, "WhoAddTemplateEdit", 448, 74, true)
-templateEdit:SetPoint("TOPLEFT", 16, -158)
-templateEdit:SetMultiLine(true)
-templateEdit:SetAutoFocus(false)
-templateEdit:SetMaxLetters(300)
-templateEdit:SetText(settings.template)
+CreateSettingLabel(settingsLeftCard, "文字通报模板", 16, -136)
 
-local templateSaveGeneration = 0
-local function ScheduleTemplateSave()
-    templateSaveGeneration = templateSaveGeneration + 1
-    local generation = templateSaveGeneration
-    After(0.35, function()
-        if generation ~= templateSaveGeneration then return end
-        settings.template = templateEdit:GetText()
-        SaveSettings()
-    end)
-end
+local templatePreviewCard = UI.CreateCard(settingsLeftCard, UI.colors.panelAlt, UI.colors.border, 4)
+templatePreviewCard:SetPoint("TOPLEFT", 16, -158)
+templatePreviewCard:SetSize(448, 86)
 
-templateEdit:SetScript("OnTextChanged", function(self, userInput)
-    if userInput then ScheduleTemplateSave() end
+local templatePreviewText = UI.Label(templatePreviewCard, "", "ChatFontNormal", UI.colors.text, 424)
+templatePreviewText:SetPoint("TOPLEFT", 12, -9)
+templatePreviewText:SetJustifyH("LEFT")
+templatePreviewText:SetWordWrap(true)
+
+local templatePreviewHint = UI.Label(templatePreviewCard, "", "GameFontNormalSmall", UI.colors.textDim, 424)
+templatePreviewHint:SetPoint("BOTTOMLEFT", 12, 7)
+templatePreviewHint:SetJustifyH("LEFT")
+
+local templateEditButton = UI.Button(settingsLeftCard, "勾选并拖动占位符", 272, 30, "primary")
+templateEditButton:SetPoint("TOPLEFT", 16, -252)
+templateEditButton:SetText("勾选并拖动占位符")
+templateEditButton:SetScript("OnClick", function()
+    if OpenTemplateEditor then OpenTemplateEditor() end
 end)
-templateEdit:SetScript("OnEditFocusLost", function(self)
-    settings.template = self:GetText()
+
+local recommendedTemplateButton = UI.Button(settingsLeftCard, "恢复推荐模板", 168, 30, "secondary")
+recommendedTemplateButton:SetPoint("LEFT", templateEditButton, "RIGHT", 8, 0)
+recommendedTemplateButton:SetText("恢复推荐模板")
+recommendedTemplateButton:SetScript("OnClick", function()
+    settings.templateLead = DEFAULT_TEMPLATE_LEAD
+    settings.templateSuffix = ""
+    settings.templateTokens = CopyTemplateTokens(DEFAULT_TEMPLATE_TOKENS)
+    settings.templateSeparators = nil
+    settings.template = BuildTemplateFromTokens(settings.templateTokens,
+        settings.templateLead, settings.templateSuffix)
+    if SyncTemplateBuilderUI then SyncTemplateBuilderUI() end
     SaveSettings()
 end)
-templateEdit:SetScript("OnEscapePressed", function(self)
-    self:ClearFocus()
+
+local templateSampleRecord = {
+    puller = "示例开怪者",
+    npcClickerChat = "示例对话者@21:03:12（3.5秒）",
+    mobDisplayName = "血领主曼多基尔",
+    mobName = "血领主曼多基尔",
+    bossName = "血领主曼多基尔",
+    raid = "祖尔格拉布",
+    action = "用 英勇打击 攻击了",
+    timeText = "21:03:15",
+    sourceLabel = "战斗日志",
+    npcID = 14988,
+    distance = 18.6,
+    snapshot = { players = {} },
+}
+for index = 1, 25 do templateSampleRecord.snapshot.players[index] = {} end
+
+local templateCheckboxes = {}
+local templateChips = {}
+local templateEditor
+local templateEditorCard
+local templateEditorSampleText
+local templateEditorStructureText
+local templateEditorStatusText
+local templateOrderCard
+local SetTokenSelected
+local LayoutSelectedChips
+local RefreshTemplateEditor
+
+local function RefreshTemplatePreview()
+    settings.template = BuildTemplateFromTokens(settings.templateTokens,
+        settings.templateLead, settings.templateSuffix, settings.templateSeparators)
+    if templatePreviewText then
+        local rendered = RenderTemplate(templateSampleRecord, settings.template)
+        if rendered == "" then rendered = "（当前模板不会输出文字）" end
+        templatePreviewText:SetText(rendered)
+    end
+    if templatePreviewHint then
+        templatePreviewHint:SetText(string.format("已选 %d 个占位符 · 点击上方按钮可视化编辑",
+            #settings.templateTokens))
+    end
+    if templateEditorSampleText then
+        local rendered = RenderTemplate(templateSampleRecord, settings.template)
+        if rendered == "" then rendered = "（当前模板不会输出文字）" end
+        templateEditorSampleText:SetText(rendered)
+    end
+    if templateEditorStructureText then
+        local labels = {}
+        if settings.templateLead and settings.templateLead ~= "" then
+            labels[#labels + 1] = settings.templateLead:gsub("%s+$", "")
+        end
+        for index, key in ipairs(settings.templateTokens) do
+            labels[#labels + 1] = string.format("%d.%s", index, TEMPLATE_TOKEN_LABELS[key] or key)
+        end
+        local structure = #labels > 0 and table.concat(labels, "  →  ")
+            or "尚未选择占位符"
+        templateEditorStructureText:SetText("当前结构：" .. structure)
+    end
+    if templateEditorStatusText then
+        templateEditorStatusText:SetText(string.format(
+            "已选 %d / %d · 勾选后会自动保存，按住已选标签拖动即可排序",
+            #settings.templateTokens, #TEMPLATE_TOKEN_DEFS))
+    end
+end
+
+templateEditor = CreateFrame("Frame", "WhoAddTemplateEditor", UIParent)
+templateEditor:SetAllPoints(UIParent)
+templateEditor:SetFrameStrata("FULLSCREEN_DIALOG")
+templateEditor:SetToplevel(true)
+templateEditor:EnableMouse(true)
+templateEditor:Hide()
+
+local templateEditorShade = templateEditor:CreateTexture(nil, "BACKGROUND")
+templateEditorShade:SetAllPoints()
+SetSolidColor(templateEditorShade, 0.015, 0.025, 0.040, 0.68)
+
+templateEditorCard = UI.CreateCard(templateEditor, UI.colors.panel, UI.colors.border, 8)
+templateEditorCard:SetSize(780, 580)
+templateEditorCard:SetPoint("CENTER")
+
+local templateEditorIcon = templateEditorCard:CreateTexture(nil, "ARTWORK")
+templateEditorIcon:SetTexture("Interface\\AddOns\\WhoAdd\\Media\\WhoAddIcon")
+templateEditorIcon:SetSize(24, 24)
+templateEditorIcon:SetPoint("TOPLEFT", 18, -16)
+
+local templateEditorTitle = UI.Label(templateEditorCard, "文字通报模板构建器",
+    "GameFontNormalLarge", UI.colors.accent)
+templateEditorTitle:SetPoint("LEFT", templateEditorIcon, "RIGHT", 10, 0)
+
+local templateEditorSubtitle = UI.Label(templateEditorCard,
+    "先勾选需要的占位符，再拖动已选标签调整通报顺序；示例会实时更新",
+    "GameFontNormalSmall", UI.colors.textDim)
+templateEditorSubtitle:SetPoint("TOPLEFT", 54, -45)
+
+local templateEditorClose = UI.Button(templateEditorCard, "×", 32, 30, "ghost")
+templateEditorClose:SetPoint("TOPRIGHT", -16, -14)
+
+local templateEditorDivider = UI.Divider(templateEditorCard)
+templateEditorDivider:SetPoint("TOPLEFT", 18, -66)
+templateEditorDivider:SetPoint("TOPRIGHT", -18, -66)
+
+local availableTokenCard = UI.CreateCard(templateEditorCard, UI.colors.panelAlt, UI.colors.border, 6)
+availableTokenCard:SetPoint("TOPLEFT", 18, -80)
+availableTokenCard:SetSize(374, 228)
+
+local availableTokenTitle = UI.Label(availableTokenCard, "可用占位符",
+    "GameFontNormal", UI.colors.text)
+availableTokenTitle:SetPoint("TOPLEFT", 14, -12)
+local availableTokenHint = UI.Label(availableTokenCard, "勾选后加入右侧顺序",
+    "GameFontNormalSmall", UI.colors.textDim)
+availableTokenHint:SetPoint("TOPRIGHT", -14, -13)
+
+templateOrderCard = UI.CreateCard(templateEditorCard, UI.colors.panelAlt, UI.colors.border, 6)
+templateOrderCard:SetPoint("TOPRIGHT", -18, -80)
+templateOrderCard:SetSize(374, 228)
+
+local orderTitle = UI.Label(templateOrderCard, "通报顺序", "GameFontNormal", UI.colors.text)
+orderTitle:SetPoint("TOPLEFT", 14, -12)
+local orderHint = UI.Label(templateOrderCard, "按住标签拖动排序",
+    "GameFontNormalSmall", UI.colors.accent)
+orderHint:SetPoint("TOPRIGHT", -14, -13)
+
+local templateSampleCard = UI.CreateCard(templateEditorCard,
+    UI.colors.panelAlt, UI.colors.border, 6)
+templateSampleCard:SetPoint("TOPLEFT", 18, -318)
+templateSampleCard:SetSize(744, 148)
+
+local sampleTitle = UI.Label(templateSampleCard, "实时示例",
+    "GameFontNormal", UI.colors.text)
+sampleTitle:SetPoint("TOPLEFT", 14, -12)
+local sampleHint = UI.Label(templateSampleCard, "使用当前勾选、顺序和距离开关模拟输出",
+    "GameFontNormalSmall", UI.colors.textDim)
+sampleHint:SetPoint("TOPRIGHT", -14, -13)
+
+local sampleOutputCard = UI.CreateCard(templateSampleCard,
+    UI.colors.panel, UI.colors.border, 4)
+sampleOutputCard:SetPoint("TOPLEFT", 14, -36)
+sampleOutputCard:SetSize(716, 68)
+
+templateEditorSampleText = UI.Label(sampleOutputCard, "",
+    "ChatFontNormal", UI.colors.text, 690)
+templateEditorSampleText:SetPoint("TOPLEFT", 12, -10)
+templateEditorSampleText:SetJustifyH("LEFT")
+templateEditorSampleText:SetWordWrap(true)
+
+templateEditorStructureText = UI.Label(templateSampleCard, "",
+    "GameFontNormalSmall", UI.colors.textDim, 716)
+templateEditorStructureText:SetPoint("TOPLEFT", 14, -112)
+templateEditorStructureText:SetJustifyH("LEFT")
+
+templateEditorStatusText = UI.Label(templateEditorCard, "",
+    "GameFontNormalSmall", UI.colors.textDim, 470)
+templateEditorStatusText:SetPoint("TOPLEFT", 18, -476)
+templateEditorStatusText:SetJustifyH("LEFT")
+
+local templateEditorFooterDivider = UI.Divider(templateEditorCard)
+templateEditorFooterDivider:SetPoint("TOPLEFT", 18, -500)
+templateEditorFooterDivider:SetPoint("TOPRIGHT", -18, -500)
+
+local clearTemplateButton = UI.Button(templateEditorCard, "清空占位符", 108, 30, "secondary")
+clearTemplateButton:SetPoint("BOTTOMLEFT", 18, 16)
+clearTemplateButton:SetText("清空占位符")
+
+local recommendTemplateButton = UI.Button(templateEditorCard, "推荐顺序", 108, 30, "secondary")
+recommendTemplateButton:SetPoint("LEFT", clearTemplateButton, "RIGHT", 8, 0)
+recommendTemplateButton:SetText("推荐顺序")
+
+local doneTemplateButton = UI.Button(templateEditorCard, "完成", 96, 30, "primary")
+doneTemplateButton:SetPoint("BOTTOMRIGHT", -18, 16)
+doneTemplateButton:SetText("完成")
+
+local function ApplyTemplateChange(animateKey)
+    settings.templateTokens = NormalizeTemplateTokens(settings.templateTokens)
+    settings.templateSeparators = nil
+    settings.template = BuildTemplateFromTokens(settings.templateTokens,
+        settings.templateLead, settings.templateSuffix)
+    RefreshTemplateEditor(animateKey)
+    SaveSettings()
+end
+
+SetTokenSelected = function(key, selected)
+    local tokens = settings.templateTokens
+    local existing
+    for index, tokenKey in ipairs(tokens) do
+        if tokenKey == key then existing = index break end
+    end
+    if selected and not existing then
+        tokens[#tokens + 1] = key
+    elseif not selected and existing then
+        table.remove(tokens, existing)
+    else
+        return
+    end
+    ApplyTemplateChange(selected and key or nil)
+end
+
+local function FindNearestTokenSlot(frame)
+    local left, top = templateOrderCard:GetLeft(), templateOrderCard:GetTop()
+    if not left or not top then return 0 end
+    local centerX = (frame:GetLeft() + frame:GetRight()) / 2
+    local centerY = (frame:GetTop() + frame:GetBottom()) / 2
+    local bestIndex = 0
+    local bestDistance = math.huge
+    for index = 1, #settings.templateTokens do
+        local column = (index - 1) % 2
+        local row = math.floor((index - 1) / 2)
+        local slotCenterX = left + 14 + column * 184 + 86
+        local slotCenterY = top - 42 - row * 31 - 14
+        local dx, dy = centerX - slotCenterX, centerY - slotCenterY
+        local distance = dx * dx + dy * dy
+        if distance < bestDistance then
+            bestDistance = distance
+            bestIndex = index - 1
+        end
+    end
+    return bestIndex
+end
+
+local function FinishChipDrag(chip)
+    chip:StopMovingOrSizing()
+    local key = chip.tokenKey
+    local oldIndex
+    local tokens = settings.templateTokens
+    for index, tokenKey in ipairs(tokens) do
+        if tokenKey == key then oldIndex = index break end
+    end
+    if not oldIndex then LayoutSelectedChips() return end
+
+    local targetIndex = FindNearestTokenSlot(chip)
+    table.remove(tokens, oldIndex)
+    table.insert(tokens, math.min(#tokens + 1, targetIndex + 1), key)
+    ApplyTemplateChange(key)
+end
+
+LayoutSelectedChips = function()
+    for _, definition in ipairs(TEMPLATE_TOKEN_DEFS) do
+        local chip = templateChips[definition.key]
+        if chip then chip:Hide() end
+    end
+    for index, key in ipairs(settings.templateTokens) do
+        local chip = templateChips[key]
+        if chip then
+            local column = (index - 1) % 2
+            local row = math.floor((index - 1) / 2)
+            chip:ClearAllPoints()
+            chip:SetPoint("TOPLEFT", 14 + column * 184, -42 - row * 31)
+            chip:SetText(string.format("%d  %s  {%s}", index,
+                TEMPLATE_TOKEN_LABELS[key] or key, key))
+            chip:Show()
+        end
+    end
+end
+
+RefreshTemplateEditor = function(animateKey)
+    for key, checkbox in pairs(templateCheckboxes) do
+        local selected = false
+        for _, tokenKey in ipairs(settings.templateTokens) do
+            if tokenKey == key then selected = true break end
+        end
+        checkbox:SetChecked(selected)
+    end
+    LayoutSelectedChips()
+    RefreshTemplatePreview()
+    local chip = animateKey and templateChips[animateKey]
+    if chip and chip:IsShown() then
+        UI.PlayMotion(chip, 0.35, 1, 0.94, 1, 0.16)
+    end
+end
+
+for index, definition in ipairs(TEMPLATE_TOKEN_DEFS) do
+    local column = (index - 1) % 2
+    local row = math.floor((index - 1) / 2)
+    local checkbox = UI.Checkbox(availableTokenCard,
+        string.format("%s  {%s}", definition.label, definition.key), 174,
+        function(checked)
+            SetTokenSelected(definition.key, checked)
+        end)
+    checkbox:SetPoint("TOPLEFT", 14 + column * 184, -42 - row * 31)
+    templateCheckboxes[definition.key] = checkbox
+
+    local chip = UI.Button(templateOrderCard, "", 172, 28, "secondary")
+    chip.tokenKey = definition.key
+    chip:SetMovable(true)
+    chip:RegisterForDrag("LeftButton")
+    chip:SetClampedToScreen(true)
+    chip:SetScript("OnDragStart", function(self)
+        self:SetAlpha(0.82)
+        self:StartMoving()
+    end)
+    chip:SetScript("OnDragStop", function(self)
+        self:SetAlpha(1)
+        FinishChipDrag(self)
+    end)
+    chip:Hide()
+    templateChips[definition.key] = chip
+end
+
+clearTemplateButton:SetScript("OnClick", function()
+    settings.templateTokens = {}
+    ApplyTemplateChange()
 end)
 
-local templateHelp = UI.Label(settingsLeftCard, "", "GameFontNormalSmall", UI.colors.textDim, 448)
-templateHelp:SetPoint("TOPLEFT", 16, -240)
-templateHelp:SetJustifyH("LEFT")
-templateHelp:SetWordWrap(true)
-templateHelp:SetText("占位符：{puller} 正常开怪者  {dialogue} 对话人  {mob} 怪物  {type} 动作  " ..
-    "{distance} 距离  {boss} 首领  {raid} 副本  {time} 时间  {source} 来源  {npcid} NPC ID  " ..
-    "{count} 人数  {npc} 带标签的对话人")
+recommendTemplateButton:SetScript("OnClick", function()
+    settings.templateLead = DEFAULT_TEMPLATE_LEAD
+    settings.templateSuffix = ""
+    settings.templateTokens = CopyTemplateTokens(DEFAULT_TEMPLATE_TOKENS)
+    ApplyTemplateChange("puller")
+end)
 
-local delayCheck = CreateSettingCheck(settingsLeftCard, "脱战后延迟通报", 16, -286, function(checked)
+local function HideTemplateEditor()
+    templateEditor:Hide()
+    templateEditor:EnableKeyboard(false)
+end
+
+templateEditorClose:SetScript("OnClick", HideTemplateEditor)
+doneTemplateButton:SetScript("OnClick", HideTemplateEditor)
+templateEditor:SetScript("OnKeyDown", function(_, key)
+    if key == "ESCAPE" then HideTemplateEditor() end
+end)
+
+OpenTemplateEditor = function()
+    RefreshTemplateEditor()
+    templateEditor:Show()
+    templateEditor:Raise()
+    templateEditor:EnableKeyboard(true)
+    UI.PlayMotion(templateEditorCard, 0, 1, 0.96, 1, 0.18)
+end
+
+SyncTemplateBuilderUI = function()
+    RefreshTemplatePreview()
+    if templateEditor and templateEditor:IsShown() then
+        RefreshTemplateEditor()
+    end
+end
+
+local delayCheck = CreateSettingCheck(settingsLeftCard, "脱战后延迟通报", 16, -296, function(checked)
     settings.delayOutOfCombat = checked
     SaveSettings()
 end, 260)
 delayCheck:SetChecked(settings.delayOutOfCombat)
 
 delayEdit = UI.EditBox(settingsLeftCard, "WhoAddDelayEdit", 48, 28, false)
-delayEdit:SetPoint("TOPLEFT", 300, -284)
+delayEdit:SetPoint("TOPLEFT", 300, -294)
 delayEdit:SetAutoFocus(false)
 delayEdit:SetMaxLetters(2)
 delayEdit:SetText(tostring(settings.delaySeconds))
@@ -3493,8 +3967,9 @@ end)
 local delaySuffix = UI.Label(settingsLeftCard, "秒", "GameFontNormalSmall", UI.colors.textDim)
 delaySuffix:SetPoint("LEFT", delayEdit, "RIGHT", 6, 0)
 
-local distanceCheck = CreateSettingCheck(settingsLeftCard, "通报中附加与怪物距离", 16, -320, function(checked)
+local distanceCheck = CreateSettingCheck(settingsLeftCard, "通报中附加与怪物距离", 16, -330, function(checked)
     settings.includeDistance = checked
+    if SyncTemplateBuilderUI then SyncTemplateBuilderUI() end
     SaveSettings()
 end)
 distanceCheck:SetChecked(settings.includeDistance)
@@ -3608,14 +4083,14 @@ settingsNote:SetWordWrap(true)
 settingsNote:SetText("说明：文字通报与弹窗通报可分别勾选；脱战延迟只影响文字通报，弹窗和声音会在确认开怪时立即触发。")
 
 local creditsDivider = UI.Divider(settingsLeftCard)
-creditsDivider:SetPoint("TOPLEFT", 16, -360)
-creditsDivider:SetPoint("TOPRIGHT", -16, -360)
+creditsDivider:SetPoint("TOPLEFT", 16, -368)
+creditsDivider:SetPoint("TOPRIGHT", -16, -368)
 
 local creditsTitle = UI.Label(settingsLeftCard, "插件信息", "GameFontNormal", UI.colors.accent)
-creditsTitle:SetPoint("TOPLEFT", 16, -378)
+creditsTitle:SetPoint("TOPLEFT", 16, -386)
 
 local creditsText = UI.Label(settingsLeftCard, "", "GameFontNormalSmall", UI.colors.textDim, 448)
-creditsText:SetPoint("TOPLEFT", 16, -402)
+creditsText:SetPoint("TOPLEFT", 16, -410)
 creditsText:SetJustifyH("LEFT")
 creditsText:SetWordWrap(true)
 creditsText:SetText("原版插件 WhoAdd 首拉原版作者：甜甜哥不口胡-时光VI\n" ..
@@ -3626,7 +4101,7 @@ SyncSettingsUI = function()
         modeButton:SetText("当前：" .. (reportModeLabels[settings.reportMode] or "仅通报团队 Boss") .. "（点击切换）")
         modeButton:SetSelected(true)
     end
-    templateEdit:SetText(settings.template)
+    if SyncTemplateBuilderUI then SyncTemplateBuilderUI() end
     delayCheck:SetChecked(settings.delayOutOfCombat)
     delayEdit:SetText(tostring(settings.delaySeconds))
     distanceCheck:SetChecked(settings.includeDistance)
