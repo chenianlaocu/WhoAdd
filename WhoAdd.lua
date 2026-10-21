@@ -5,7 +5,7 @@
 local addonName = ...
 
 local WhoAdd = CreateFrame("Frame")
-local WhoAddVersion = "4.6.2"
+local WhoAddVersion = "4.6.3"
 WhoAdd.loadStage = "初始化"
 _G.WhoAddVersion = WhoAddVersion
 
@@ -297,7 +297,7 @@ AddBoss("阿尔卡冯的宝库", "烈焰看守者科拉隆", { 35013 })
 AddBoss("阿尔卡冯的宝库", "寒冰看守者图拉旺", { 38433 }, { 38456 })
 
 -- 祖尔格拉布
-AddBoss("祖尔格拉布", "高阶祭司耶克里克", { 14517 }, nil, { 14965, 14750 })
+AddBoss("祖尔格拉布", "高阶祭司耶克里克", { 14517 })
 AddBoss("祖尔格拉布", "高阶祭司温诺希斯", { 14507 }, nil, { 11373 })
 AddBoss("祖尔格拉布", "高阶祭司玛尔里", { 14510 }, nil, { 15041 })
 AddBoss("祖尔格拉布", "血领主曼多基尔", { 11382 }, nil, { 14988 })
