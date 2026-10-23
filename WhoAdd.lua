@@ -6,7 +6,7 @@ local WA = select(2, ...)
 WA.addonName = ...
 
 local WhoAdd = CreateFrame("Frame")
-local WhoAddVersion = "4.6.13"
+local WhoAddVersion = "4.6.14"
 WhoAdd.loadStage = "初始化"
 _G.WhoAddVersion = WhoAddVersion
 
