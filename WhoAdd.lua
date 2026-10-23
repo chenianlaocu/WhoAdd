@@ -6,7 +6,7 @@ local WA = select(2, ...)
 WA.addonName = ...
 
 local WhoAdd = CreateFrame("Frame")
-local WhoAddVersion = "4.6.14"
+local WhoAddVersion = "4.6.15"
 WhoAdd.loadStage = "初始化"
 _G.WhoAddVersion = WhoAddVersion
 
@@ -2059,6 +2059,8 @@ end
 local function CanAddBePullEvidence(npcId, boss)
     npcId = tonumber(npcId)
     if not npcId or IGNORED_ADD_NPCS[npcId] then return false end
+    local bodyOnly = WA.Catalog.bossBodyOnly
+    if bodyOnly and boss and bodyOnly[boss.name] then return false end
     local knownBoss = boss or BOSS_BY_ID[npcId]
     local isBossAdd = boss ~= nil or (knownBoss and knownBoss.roleById[npcId] == "add")
     if not PULL_EVIDENCE_ADD_NPCS[npcId] and not isBossAdd then return false end
@@ -2132,8 +2134,15 @@ local function ReportPull(info)
     if reportedMobs[info.guid] or deadMobs[info.guid] then return nil end
     DebugPrint(string.format("尝试记录 %s (%s)", tostring(info.mobName), tostring(info.guid)))
 
-    local role = info.role or "trash"
     local npcId = NpcIDFromGUID(info.guid)
+    local linked = WhoAdd.LinkedPulls
+    if linked and linked.PreprocessPull then
+        local linkedResult = linked.PreprocessPull(info, npcId)
+        if linkedResult == false then return nil end
+        if type(linkedResult) == "table" then info = linkedResult end
+    end
+
+    local role = info.role or "trash"
     local bossKey = info.boss and info.boss.name
         and ("boss:" .. tostring(info.boss.raid or "") .. ":" .. info.boss.name) or nil
     if bossKey and reportedMobs[bossKey] then return nil end
@@ -2636,6 +2645,8 @@ local function ResetCombatState(reason)
     WhoAdd.firstCombatAt = nil
     local yogg = WhoAdd.YoggPrison
     if yogg and yogg.Reset then yogg.Reset() end
+    local linked = WhoAdd.LinkedPulls
+    if linked and linked.Reset then linked.Reset() end
     BuildPetMap()
     DebugPrint("战斗状态重置: " .. tostring(reason))
 end
